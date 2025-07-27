@@ -24,7 +24,7 @@ interface SettingsProps {
 
 export function Settings({ user }: SettingsProps) {
   const { signOut } = useAuth()
-  const { profile, loading, updateProfile } = useProfile(user.id)
+  const { profile, loading, updateProfile, deleteProfile } = useProfile(user.id)
   const { toast } = useToast()
   const router = useRouter()
 
@@ -108,6 +108,7 @@ export function Settings({ user }: SettingsProps) {
 
   const handleDeleteAccount = async () => {
     try {
+      await deleteProfile()
       await signOut()
       toast({
         title: "Account Deleted",
