@@ -10,7 +10,7 @@ export async function signIn(email: string, password: string): Promise<Profile |
     })
 
     if (error) {
-      console.error("Sign in error:", error.message); // Log specific error message
+      console.error("Sign in error:", error.message)
       return null
     }
 
@@ -21,71 +21,77 @@ export async function signIn(email: string, password: string): Promise<Profile |
 
     return null
   } catch (error) {
-    console.error("Sign in error (catch block):", error); // Log generic error
+    console.error("Sign in error (catch block):", error)
     return null
   }
 }
 
-export async function signUp(username: string, email: string, password: string): Promise<Profile | null> {
+export async function signUp(
+  username: string,
+  email: string,
+  password: string,
+): Promise<{ success: boolean; needsConfirmation: boolean; error?: string }> {
   try {
     const { data, error } = await getSupabaseClient().auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          username: username.trim(), // Pass username in user metadata for the trigger
+        },
+      },
     })
 
     if (error) {
-      console.error("Sign up error:", error.message); // Log specific error message
-      return null
+      console.error("Sign up error:", error.message)
+      return { success: false, needsConfirmation: false, error: error.message }
     }
 
     if (data.user) {
-      // Create user profile
-      const { data: profile, error: profileError } = await getSupabaseClient()
-        .from("profiles")
-        .insert([
-          {
-            id: data.user.id,
-            username,
-            email,
-            created_at: new Date().toISOString(),
-          },
-        ])
-        .select()
-        .single()
-
-      if (profileError) {
-        console.error("Profile creation error:", profileError)
-        return null
+      // If user exists but is not confirmed, they need to check their email
+      if (data.user && !data.user.email_confirmed_at) {
+        return { success: true, needsConfirmation: true }
       }
 
-      return profile
+      // If user is already confirmed (auto-confirm is enabled)
+      return { success: true, needsConfirmation: false }
     }
 
-    return null
+    return { success: true, needsConfirmation: true } // Default to needing confirmation
   } catch (error) {
-    console.error("Sign up error (catch block):", error); // Log generic error
-    return null
+    console.error("Sign up error (catch block):", error)
+    return { success: false, needsConfirmation: false, error: "An unexpected error occurred" }
   }
 }
 
 export async function signInWithGoogle(): Promise<{ success: boolean; error?: string }> {
   try {
+    // Store a flag to show success toast after redirect
+    if (typeof window !== "undefined") {
+      localStorage.setItem("google-oauth-pending", "true")
+    }
+
     const { data, error } = await getSupabaseClient().auth.signInWithOAuth({
-      provider: 'google',
+      provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/dashboard`
-      }
+        redirectTo: `${window.location.origin}/dashboard`,
+      },
     })
 
     if (error) {
-      console.error("Google sign in error:", error.message) // Log specific error message
+      console.error("Google sign in error:", error.message)
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("google-oauth-pending")
+      }
       return { success: false, error: error.message }
     }
 
-    // The redirect will happen automatically, so we return success
     return { success: true }
   } catch (error) {
-    console.error("Google sign in error (catch block):", error) // Log generic error
+    console.error("Google sign in error (catch block):", error)
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("google-oauth-pending")
+    }
     return { success: false, error: "An unexpected error occurred" }
   }
 }
@@ -94,49 +100,25 @@ export async function signOut(): Promise<void> {
   try {
     const { error } = await getSupabaseClient().auth.signOut()
     if (error) {
-      console.error("Sign out error:", error.message) // Log specific error message
+      console.error("Sign out error:", error.message)
     }
   } catch (error) {
-    console.error("Sign out error (catch block):", error) // Log generic error
+    console.error("Sign out error (catch block):", error)
   }
 }
 
 export async function getCurrentUser(): Promise<Profile | null> {
   try {
-    const { data: { user } } = await getSupabaseClient().auth.getUser()
-    
+    const {
+      data: { user },
+    } = await getSupabaseClient().auth.getUser()
+
     if (!user) return null
 
-    // Check if profile exists, if not create one (for Google OAuth users)
-    let { data: profile, error } = await getSupabaseClient()
-      .from("profiles")
-      .select("*")
-      .eq("id", user.id)
-      .single()
+    // Simply fetch the profile - it should exist due to the trigger
+    const { data: profile, error } = await getSupabaseClient().from("profiles").select("*").eq("id", user.id).single()
 
-    if (error && error.code === 'PGRST116') {
-      // Profile doesn't exist, create one
-      const { data: newProfile, error: createError } = await getSupabaseClient()
-        .from("profiles")
-        .insert([
-          {
-            id: user.id,
-            username: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
-            email: user.email || '',
-            avatar_url: user.user_metadata?.avatar_url,
-            created_at: new Date().toISOString(),
-          },
-        ])
-        .select()
-        .single()
-
-      if (createError) {
-        console.error("Error creating profile:", createError)
-        return null
-      }
-
-      profile = newProfile
-    } else if (error) {
+    if (error) {
       console.error("Error fetching profile:", error)
       return null
     }
@@ -150,11 +132,7 @@ export async function getCurrentUser(): Promise<Profile | null> {
 
 // Profile functions
 export async function getProfile(userId: string): Promise<Profile | null> {
-  const { data, error } = await getSupabaseClient()
-    .from("profiles")
-    .select("*")
-    .eq("id", userId)
-    .single()
+  const { data, error } = await getSupabaseClient().from("profiles").select("*").eq("id", userId).single()
 
   if (error) {
     console.error("Error fetching profile:", error)
@@ -165,10 +143,7 @@ export async function getProfile(userId: string): Promise<Profile | null> {
 }
 
 export async function updateProfile(userId: string, updates: Partial<Profile>): Promise<boolean> {
-  const { error } = await getSupabaseClient()
-    .from("profiles")
-    .update(updates)
-    .eq("id", userId)
+  const { error } = await getSupabaseClient().from("profiles").update(updates).eq("id", userId)
 
   if (error) {
     console.error("Error updating profile:", error)
@@ -185,40 +160,32 @@ export async function changePassword(newPassword: string): Promise<boolean> {
     })
 
     if (error) {
-      console.error("Change password error:", error.message) // Log specific error message
+      console.error("Change password error:", error.message)
       return false
     }
 
     return true
   } catch (error) {
-    console.error("Change password error (catch block):", error) // Log generic error
+    console.error("Change password error (catch block):", error)
     return false
   }
 }
 
 export async function deleteAccount(): Promise<boolean> {
   try {
-    // Note: This requires RLS policies and potentially server-side function
-    // to properly delete user data and account
-    const {
-      data: { user },
-    } = await getSupabaseClient().auth.getUser()
-
-    if (!user) return false
-
-    // Delete user profile and related data
-    const { error } = await getSupabaseClient().from("profiles").delete().eq("id", user.id)
+    // Call the Supabase function to delete the account
+    // This will handle all cleanup and auth user deletion
+    const { error } = await getSupabaseClient().rpc("delete_user_account")
 
     if (error) {
-      console.error("Delete account error:", error.message) // Log specific error message
+      console.error("Delete account error:", error.message)
       return false
     }
 
-    // Sign out after deletion
-    await getSupabaseClient().auth.signOut()
+    // The function handles sign out automatically
     return true
   } catch (error) {
-    console.error("Delete account error (catch block):", error) // Log generic error
+    console.error("Delete account error (catch block):", error)
     return false
   }
 }
@@ -298,23 +265,25 @@ export async function createProject(title: string, description?: string): Promis
       .single()
 
     if (error || !data) {
-      console.error("Create project error:", error.message) // Log specific error message
+      console.error("Create project error:", error.message)
       throw new Error("You don't have permission to create projects")
     }
 
     // Add owner as project member
-    await getSupabaseClient().from("project_members").insert([
-      {
-        project_id: data.id,
-        profile_id: user.id,
-        role: "owner",
-        joined_at: new Date().toISOString(),
-      },
-    ])
+    await getSupabaseClient()
+      .from("project_members")
+      .insert([
+        {
+          project_id: data.id,
+          profile_id: user.id,
+          role: "owner",
+          joined_at: new Date().toISOString(),
+        },
+      ])
 
     return data
   } catch (error) {
-    console.error("Create project error (catch block):", error) // Log generic error
+    console.error("Create project error (catch block):", error)
     if (error instanceof Error) {
       throw error
     }
@@ -323,11 +292,7 @@ export async function createProject(title: string, description?: string): Promis
 }
 
 export async function getProject(projectId: string): Promise<Project | null> {
-  const { data, error } = await getSupabaseClient()
-    .from("projects")
-    .select("*")
-    .eq("id", projectId)
-    .single()
+  const { data, error } = await getSupabaseClient().from("projects").select("*").eq("id", projectId).single()
 
   if (error) {
     console.error("Error fetching project:", error)
@@ -339,16 +304,21 @@ export async function getProject(projectId: string): Promise<Project | null> {
 
 export async function updateProject(projectId: string, updates: Partial<Project>): Promise<Project | null> {
   try {
-    const { data, error } = await getSupabaseClient().from("projects").update(updates).eq("id", projectId).select().single()
+    const { data, error } = await getSupabaseClient()
+      .from("projects")
+      .update(updates)
+      .eq("id", projectId)
+      .select()
+      .single()
 
     if (error || !data) {
-      console.error("Update project error:", error.message) // Log specific error message
+      console.error("Update project error:", error.message)
       throw new Error("You don't have permission to edit this project")
     }
 
     return data
   } catch (error) {
-    console.error("Update project error (catch block):", error) // Log generic error
+    console.error("Update project error (catch block):", error)
     if (error instanceof Error) {
       throw error
     }
@@ -361,7 +331,7 @@ export async function deleteProject(projectId: string): Promise<boolean> {
     const { data, error } = await getSupabaseClient().from("projects").delete().eq("id", projectId).select()
 
     if (error) {
-      console.error("Delete project error:", error.message) // Log specific error message
+      console.error("Delete project error:", error.message)
       throw new Error("You don't have permission to delete this project")
     }
 
@@ -372,7 +342,7 @@ export async function deleteProject(projectId: string): Promise<boolean> {
 
     return true
   } catch (error) {
-    console.error("Delete project error (catch block):", error) // Log generic error
+    console.error("Delete project error (catch block):", error)
     if (error instanceof Error) {
       throw error
     }
@@ -413,13 +383,13 @@ export async function createTask(projectId: string, title: string, description?:
       .single()
 
     if (error || !data) {
-      console.error("Create task error:", error.message) // Log specific error message
+      console.error("Create task error:", error.message)
       throw new Error("You don't have permission to add tasks to this project")
     }
 
     return data
   } catch (error) {
-    console.error("Create task error (catch block):", error) // Log generic error
+    console.error("Create task error (catch block):", error)
     if (error instanceof Error) {
       throw error
     }
@@ -432,13 +402,13 @@ export async function updateTask(taskId: string, updates: Partial<Task>): Promis
     const { data, error } = await getSupabaseClient().from("tasks").update(updates).eq("id", taskId).select().single()
 
     if (error || !data) {
-      console.error("Update task error:", error.message) // Log specific error message
+      console.error("Update task error:", error.message)
       throw new Error("You don't have permission to edit this task")
     }
 
     return data
   } catch (error) {
-    console.error("Update task error (catch block):", error) // Log generic error
+    console.error("Update task error (catch block):", error)
     if (error instanceof Error) {
       throw error
     }
@@ -449,7 +419,11 @@ export async function updateTask(taskId: string, updates: Partial<Task>): Promis
 export async function toggleTaskCompletion(taskId: string): Promise<boolean> {
   try {
     // First get the current task
-    const { data: task, error: getError } = await getSupabaseClient().from("tasks").select("completed").eq("id", taskId).single()
+    const { data: task, error: getError } = await getSupabaseClient()
+      .from("tasks")
+      .select("completed")
+      .eq("id", taskId)
+      .single()
 
     if (getError || !task) {
       console.error("Get task error:", getError)
@@ -464,7 +438,7 @@ export async function toggleTaskCompletion(taskId: string): Promise<boolean> {
       .select()
 
     if (updateError) {
-      console.error("Toggle task completion error:", updateError.message) // Log specific error message
+      console.error("Toggle task completion error:", updateError.message)
       throw new Error("You don't have permission to update this task")
     }
 
@@ -475,7 +449,7 @@ export async function toggleTaskCompletion(taskId: string): Promise<boolean> {
 
     return true
   } catch (error) {
-    console.error("Toggle task completion error (catch block):", error) // Log generic error
+    console.error("Toggle task completion error (catch block):", error)
     if (error instanceof Error) {
       throw error
     }
@@ -488,7 +462,7 @@ export async function deleteTask(taskId: string): Promise<boolean> {
     const { data, error } = await getSupabaseClient().from("tasks").delete().eq("id", taskId).select()
 
     if (error) {
-      console.error("Delete task error:", error.message) // Log specific error message
+      console.error("Delete task error:", error.message)
       throw new Error("You don't have permission to delete this task")
     }
 
@@ -499,7 +473,7 @@ export async function deleteTask(taskId: string): Promise<boolean> {
 
     return true
   } catch (error) {
-    console.error("Delete task error (catch block):", error) // Log generic error
+    console.error("Delete task error (catch block):", error)
     if (error instanceof Error) {
       throw error
     }
@@ -531,7 +505,7 @@ export async function getProjectMembers(projectId: string): Promise<(ProjectMemb
   return data || []
 }
 
-export async function inviteMember(projectId: string, email: string, role: string = "viewer"): Promise<boolean> {
+export async function inviteMember(projectId: string, email: string, role = "viewer"): Promise<boolean> {
   try {
     // First, find the user by email
     const { data: profile, error: profileError } = await getSupabaseClient()
@@ -571,7 +545,7 @@ export async function inviteMember(projectId: string, email: string, role: strin
       .select()
 
     if (error) {
-      console.error("Invite member error:", error.message) // Log specific error message
+      console.error("Invite member error:", error.message)
       // Check if it's a permission error
       if (error.code === "42501" || error.message.includes("policy")) {
         throw new Error(
@@ -590,7 +564,7 @@ export async function inviteMember(projectId: string, email: string, role: strin
 
     return true
   } catch (error) {
-    console.error("Invite member error (catch block):", error) // Log generic error
+    console.error("Invite member error (catch block):", error)
     if (error instanceof Error) {
       throw error
     }
@@ -608,7 +582,7 @@ export async function removeMember(projectId: string, memberId: string): Promise
       .select()
 
     if (error) {
-      console.error("Remove member error:", error.message) // Log specific error message
+      console.error("Remove member error:", error.message)
       // Check for specific error messages
       if (error.message.includes("Cannot remove the last owner")) {
         throw new Error("Cannot remove the last owner of a project. Transfer ownership first.")
@@ -630,7 +604,7 @@ export async function removeMember(projectId: string, memberId: string): Promise
 
     return true
   } catch (error) {
-    console.error("Remove member error (catch block):", error) // Log generic error
+    console.error("Remove member error (catch block):", error)
     if (error instanceof Error) {
       throw error
     }
@@ -648,7 +622,7 @@ export async function updateMemberRole(projectId: string, memberId: string, role
       .select()
 
     if (error) {
-      console.error("Update member role error:", error.message) // Log specific error message
+      console.error("Update member role error:", error.message)
       if (error.code === "42501" || error.message.includes("policy")) {
         throw new Error(
           "You don't have permission to update member roles in this project. Only owners and admins can modify roles.",
@@ -666,7 +640,7 @@ export async function updateMemberRole(projectId: string, memberId: string, role
 
     return true
   } catch (error) {
-    console.error("Update member role error (catch block):", error) // Log generic error
+    console.error("Update member role error (catch block):", error)
     if (error instanceof Error) {
       throw error
     }
@@ -697,7 +671,19 @@ export async function getCurrentUserRole(projectId: string): Promise<string | nu
 
     return data?.role || null
   } catch (error) {
-    console.error("Get user role error (catch block):", error) // Log generic error
+    console.error("Get user role error (catch block):", error)
     return null
   }
+}
+
+// Helper function to check if the user came from Google OAuth
+export function checkAndClearGoogleOAuthSuccess(): boolean {
+  if (typeof window !== "undefined") {
+    const pending = localStorage.getItem("google-oauth-pending")
+    if (pending === "true") {
+      localStorage.removeItem("google-oauth-pending")
+      return true
+    }
+  }
+  return false
 }

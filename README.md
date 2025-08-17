@@ -7,6 +7,7 @@ A modern collaborative task management application built with Next.js and Supaba
 ### 🔐 Authentication
 - **Email/Password login** with full validation
 - **Google OAuth authentication** for quick sign-in
+- **User profile management** with avatar and personal information
 - **Secure password change**
 - **Account deletion** with confirmation
 

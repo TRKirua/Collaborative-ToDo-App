@@ -1,5 +1,7 @@
 "use client"
 
+import type React from "react"
+
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -7,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
-import { Eye, EyeOff, User, Mail, Lock } from 'lucide-react'
+import { Eye, EyeOff, User, Mail, Lock } from "lucide-react"
 import { signIn, signUp, signInWithGoogle } from "@/lib/database"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/toast"
@@ -59,11 +61,8 @@ export default function AuthPage() {
     try {
       const result = await signInWithGoogle()
       if (result.success) {
-        addToast({
-          title: "Success",
-          description: "Successfully signed in with Google!",
-          variant: "success",
-        })
+        // Toast will be shown on dashboard after redirect
+        // No need to show toast here since redirect happens immediately
         router.push("/dashboard")
       } else {
         addToast({
@@ -85,7 +84,7 @@ export default function AuthPage() {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     // Client-side validation
     if (!signInData.email.trim()) {
       addToast({
@@ -136,7 +135,8 @@ export default function AuthPage() {
       } else {
         addToast({
           title: "Sign In Failed",
-          description: "Invalid email or password",
+          description:
+            "Invalid email or password. If you just signed up, please check your email and confirm your account first.",
           variant: "destructive",
         })
       }
@@ -153,7 +153,7 @@ export default function AuthPage() {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     // Client-side validation
     if (!signUpData.username.trim()) {
       addToast({
@@ -220,19 +220,31 @@ export default function AuthPage() {
 
     setLoading(true)
     try {
-      const user = await signUp(signUpData.username.trim(), signUpData.email, signUpData.password)
-      if (user) {
-        addToast({
-          title: "Success",
-          description: "Account created successfully! You can now sign in.",
-          variant: "success",
-        })
-        setActiveTab("signin")
-        clearAllFields()
+      const result = await signUp(signUpData.username.trim(), signUpData.email, signUpData.password)
+
+      if (result.success === true) {
+        if (result.needsConfirmation) {
+          addToast({
+            title: "Check Your Email",
+            description:
+              "We've sent you a confirmation email. Please click the link in the email to activate your account, then you can sign in.",
+            variant: "success",
+          })
+          setActiveTab("signin")
+          clearAllFields()
+        } else {
+          addToast({
+            title: "Success",
+            description: "Account created successfully! You can now sign in.",
+            variant: "success",
+          })
+          setActiveTab("signin")
+          clearAllFields()
+        }
       } else {
         addToast({
           title: "Sign Up Failed",
-          description: "Failed to create account. Please try again.",
+          description: result.error || "Failed to create account. Please try again.",
           variant: "destructive",
         })
       }
@@ -257,9 +269,9 @@ export default function AuthPage() {
         <CardContent>
           {/* Google Sign In Button */}
           <div className="space-y-4 mb-6">
-            <Button 
-              variant="outline" 
-              className="w-full" 
+            <Button
+              variant="outline"
+              className="w-full bg-transparent"
               onClick={handleGoogleSignIn}
               disabled={googleLoading || loading}
             >
@@ -283,7 +295,7 @@ export default function AuthPage() {
               </svg>
               {googleLoading ? "Signing in..." : "Continue with Google"}
             </Button>
-            
+
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
                 <Separator className="w-full" />
@@ -348,9 +360,9 @@ export default function AuthPage() {
                   </div>
                 </div>
 
-                <Button 
-                  type="submit" 
-                  className="w-full" 
+                <Button
+                  type="submit"
+                  className="w-full"
                   disabled={loading || googleLoading || !signInData.email || !signInData.password}
                 >
                   {loading ? "Signing in..." : "Sign In"}
@@ -452,10 +464,17 @@ export default function AuthPage() {
                   </div>
                 </div>
 
-                <Button 
-                  type="submit" 
-                  className="w-full" 
-                  disabled={loading || googleLoading || !signUpData.username || !signUpData.email || !signUpData.password || !signUpData.confirmPassword}
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={
+                    loading ||
+                    googleLoading ||
+                    !signUpData.username ||
+                    !signUpData.email ||
+                    !signUpData.password ||
+                    !signUpData.confirmPassword
+                  }
                 >
                   {loading ? "Creating account..." : "Sign Up"}
                 </Button>

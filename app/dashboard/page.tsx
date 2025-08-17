@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { Plus } from 'lucide-react'
+import { Plus } from "lucide-react"
 import { AuthGuard } from "@/components/auth-guard"
 import { HeaderNav } from "@/components/header-nav"
 import { ProjectCard } from "@/components/project-card"
 import { CreateProjectDialog } from "@/components/create-project-dialog"
-import { getUserProjects, getCurrentUser } from "@/lib/database"
+import { getUserProjects, getCurrentUser, checkAndClearGoogleOAuthSuccess } from "@/lib/database"
 import type { ProjectWithStats, Profile } from "@/lib/types"
 import { useToast } from "@/components/toast"
 
@@ -35,6 +35,16 @@ export default function DashboardPage() {
       }
 
       setUser(currentUser)
+
+      // Check if user just completed Google OAuth
+      if (checkAndClearGoogleOAuthSuccess()) {
+        addToast({
+          title: "Success",
+          description: "Successfully signed in with Google!",
+          variant: "success",
+        })
+      }
+
       const userProjects = await getUserProjects(currentUser.id)
       setProjects(userProjects)
     } catch (error) {
@@ -114,10 +124,9 @@ export default function DashboardPage() {
               <div>
                 <h1 className="text-3xl font-bold tracking-tight">Your Projects</h1>
                 <p className="text-muted-foreground">
-                  {projects.length === 0 
-                    ? "Create your first project to get started" 
-                    : `You have ${projects.length} project${projects.length === 1 ? '' : 's'}`
-                  }
+                  {projects.length === 0
+                    ? "Create your first project to get started"
+                    : `You have ${projects.length} project${projects.length === 1 ? "" : "s"}`}
                 </p>
               </div>
               <Button onClick={() => setShowCreateDialog(true)}>
@@ -130,11 +139,7 @@ export default function DashboardPage() {
             {projects.length > 0 ? (
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {projects.map((project) => (
-                  <ProjectCard
-                    key={project.id}
-                    project={project}
-                    onUpdate={handleProjectUpdate}
-                  />
+                  <ProjectCard key={project.id} project={project} onUpdate={handleProjectUpdate} />
                 ))}
               </div>
             ) : (
