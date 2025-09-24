@@ -68,6 +68,7 @@ A modern collaborative task management application built with Next.js and Supaba
   - Row-Level Security (RLS) policies
   - Automatic REST API
 
-## 🔗 Link : [Collaborative-ToDo-App](v0-collaborative-todo-app-flame.vercel.app)
+## 🔗 Link : [Collaborative-ToDo-App](https://v0-collaborative-todo-app-flame.vercel.app)
+
 
 **Developed using Next.js and Supabase**
