@@ -1,10 +1,11 @@
 import type { Profile, Project, Task, ProjectMember, ProjectWithStats } from "./types"
-import { getSupabaseClient } from "./supabase"
+import { createClient } from "./supabase/client"
 
 // Authentication functions
 export async function signIn(email: string, password: string): Promise<Profile | null> {
   try {
-    const { data, error } = await getSupabaseClient().auth.signInWithPassword({
+    const supabase = createClient()
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
@@ -15,7 +16,7 @@ export async function signIn(email: string, password: string): Promise<Profile |
     }
 
     if (data.user) {
-      const { data: profile } = await getSupabaseClient().from("profiles").select("*").eq("id", data.user.id).single()
+      const { data: profile } = await supabase.from("profiles").select("*").eq("id", data.user.id).single()
       return profile
     }
 
@@ -32,12 +33,13 @@ export async function signUp(
   password: string,
 ): Promise<{ success: boolean; needsConfirmation: boolean; error?: string }> {
   try {
-    const { data, error } = await getSupabaseClient().auth.signUp({
+    const supabase = createClient()
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
-          username: username.trim(), // Pass username in user metadata for the trigger
+          username: username.trim(),
         },
       },
     })
@@ -48,16 +50,14 @@ export async function signUp(
     }
 
     if (data.user) {
-      // If user exists but is not confirmed, they need to check their email
       if (data.user && !data.user.email_confirmed_at) {
         return { success: true, needsConfirmation: true }
       }
 
-      // If user is already confirmed (auto-confirm is enabled)
       return { success: true, needsConfirmation: false }
     }
 
-    return { success: true, needsConfirmation: true } // Default to needing confirmation
+    return { success: true, needsConfirmation: true }
   } catch (error) {
     console.error("Sign up error (catch block):", error)
     return { success: false, needsConfirmation: false, error: "An unexpected error occurred" }
@@ -66,12 +66,12 @@ export async function signUp(
 
 export async function signInWithGoogle(): Promise<{ success: boolean; error?: string }> {
   try {
-    // Store a flag to show success toast after redirect
+    const supabase = createClient()
     if (typeof window !== "undefined") {
       localStorage.setItem("google-oauth-pending", "true")
     }
 
-    const { data, error } = await getSupabaseClient().auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/dashboard`,
@@ -98,7 +98,8 @@ export async function signInWithGoogle(): Promise<{ success: boolean; error?: st
 
 export async function signOut(): Promise<void> {
   try {
-    const { error } = await getSupabaseClient().auth.signOut()
+    const supabase = createClient()
+    const { error } = await supabase.auth.signOut()
     if (error) {
       console.error("Sign out error:", error.message)
     }
@@ -109,14 +110,14 @@ export async function signOut(): Promise<void> {
 
 export async function getCurrentUser(): Promise<Profile | null> {
   try {
+    const supabase = createClient()
     const {
       data: { user },
-    } = await getSupabaseClient().auth.getUser()
+    } = await supabase.auth.getUser()
 
     if (!user) return null
 
-    // Simply fetch the profile - it should exist due to the trigger
-    const { data: profile, error } = await getSupabaseClient().from("profiles").select("*").eq("id", user.id).single()
+    const { data: profile, error } = await supabase.from("profiles").select("*").eq("id", user.id).single()
 
     if (error) {
       console.error("Error fetching profile:", error)
@@ -132,7 +133,8 @@ export async function getCurrentUser(): Promise<Profile | null> {
 
 // Profile functions
 export async function getProfile(userId: string): Promise<Profile | null> {
-  const { data, error } = await getSupabaseClient().from("profiles").select("*").eq("id", userId).single()
+  const supabase = createClient()
+  const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single()
 
   if (error) {
     console.error("Error fetching profile:", error)
@@ -143,7 +145,8 @@ export async function getProfile(userId: string): Promise<Profile | null> {
 }
 
 export async function updateProfile(userId: string, updates: Partial<Profile>): Promise<boolean> {
-  const { error } = await getSupabaseClient().from("profiles").update(updates).eq("id", userId)
+  const supabase = createClient()
+  const { error } = await supabase.from("profiles").update(updates).eq("id", userId)
 
   if (error) {
     console.error("Error updating profile:", error)
@@ -155,7 +158,8 @@ export async function updateProfile(userId: string, updates: Partial<Profile>): 
 
 export async function changePassword(newPassword: string): Promise<boolean> {
   try {
-    const { error } = await getSupabaseClient().auth.updateUser({
+    const supabase = createClient()
+    const { error } = await supabase.auth.updateUser({
       password: newPassword,
     })
 
@@ -173,16 +177,14 @@ export async function changePassword(newPassword: string): Promise<boolean> {
 
 export async function deleteAccount(): Promise<boolean> {
   try {
-    // Call the Supabase function to delete the account
-    // This will handle all cleanup and auth user deletion
-    const { error } = await getSupabaseClient().rpc("delete_user_account")
+    const supabase = createClient()
+    const { error } = await supabase.rpc("delete_user_account")
 
     if (error) {
       console.error("Delete account error:", error.message)
       return false
     }
 
-    // The function handles sign out automatically
     return true
   } catch (error) {
     console.error("Delete account error (catch block):", error)
@@ -193,8 +195,8 @@ export async function deleteAccount(): Promise<boolean> {
 // Project functions
 export async function getUserProjects(userId: string): Promise<ProjectWithStats[]> {
   try {
-    // First get projects where user is owner
-    const { data: ownedProjects, error: ownedError } = await getSupabaseClient()
+    const supabase = createClient()
+    const { data: ownedProjects, error: ownedError } = await supabase
       .from("projects")
       .select(`
         *,
@@ -204,8 +206,7 @@ export async function getUserProjects(userId: string): Promise<ProjectWithStats[
       .eq("owner_id", userId)
       .order("created_at", { ascending: true })
 
-    // Also get projects where user is a member
-    const { data: memberProjects, error: memberError } = await getSupabaseClient()
+    const { data: memberProjects, error: memberError } = await supabase
       .from("project_members")
       .select(`
         project:projects(
@@ -226,7 +227,6 @@ export async function getUserProjects(userId: string): Promise<ProjectWithStats[
 
     const allProjects = [...(ownedProjects || []), ...(memberProjects?.map((mp) => mp.project).filter(Boolean) || [])]
 
-    // Remove duplicates and sort by creation date (oldest first, newest last)
     const uniqueProjects = allProjects
       .filter((project, index, self) => index === self.findIndex((p) => p.id === project.id))
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
@@ -245,13 +245,14 @@ export async function getUserProjects(userId: string): Promise<ProjectWithStats[
 
 export async function createProject(title: string, description?: string): Promise<Project | null> {
   try {
+    const supabase = createClient()
     const {
       data: { user },
-    } = await getSupabaseClient().auth.getUser()
+    } = await supabase.auth.getUser()
 
     if (!user) return null
 
-    const { data, error } = await getSupabaseClient()
+    const { data, error } = await supabase
       .from("projects")
       .insert([
         {
@@ -269,17 +270,14 @@ export async function createProject(title: string, description?: string): Promis
       throw new Error("You don't have permission to create projects")
     }
 
-    // Add owner as project member
-    await getSupabaseClient()
-      .from("project_members")
-      .insert([
-        {
-          project_id: data.id,
-          profile_id: user.id,
-          role: "owner",
-          joined_at: new Date().toISOString(),
-        },
-      ])
+    await supabase.from("project_members").insert([
+      {
+        project_id: data.id,
+        profile_id: user.id,
+        role: "owner",
+        joined_at: new Date().toISOString(),
+      },
+    ])
 
     return data
   } catch (error) {
@@ -292,7 +290,8 @@ export async function createProject(title: string, description?: string): Promis
 }
 
 export async function getProject(projectId: string): Promise<Project | null> {
-  const { data, error } = await getSupabaseClient().from("projects").select("*").eq("id", projectId).single()
+  const supabase = createClient()
+  const { data, error } = await supabase.from("projects").select("*").eq("id", projectId).single()
 
   if (error) {
     console.error("Error fetching project:", error)
@@ -304,12 +303,8 @@ export async function getProject(projectId: string): Promise<Project | null> {
 
 export async function updateProject(projectId: string, updates: Partial<Project>): Promise<Project | null> {
   try {
-    const { data, error } = await getSupabaseClient()
-      .from("projects")
-      .update(updates)
-      .eq("id", projectId)
-      .select()
-      .single()
+    const supabase = createClient()
+    const { data, error } = await supabase.from("projects").update(updates).eq("id", projectId).select().single()
 
     if (error || !data) {
       console.error("Update project error:", error.message)
@@ -328,14 +323,14 @@ export async function updateProject(projectId: string, updates: Partial<Project>
 
 export async function deleteProject(projectId: string): Promise<boolean> {
   try {
-    const { data, error } = await getSupabaseClient().from("projects").delete().eq("id", projectId).select()
+    const supabase = createClient()
+    const { data, error } = await supabase.from("projects").delete().eq("id", projectId).select()
 
     if (error) {
       console.error("Delete project error:", error.message)
       throw new Error("You don't have permission to delete this project")
     }
 
-    // Check if any rows were actually deleted
     if (!data || data.length === 0) {
       throw new Error("You don't have permission to delete this project")
     }
@@ -352,7 +347,8 @@ export async function deleteProject(projectId: string): Promise<boolean> {
 
 // Task functions
 export async function getProjectTasks(projectId: string): Promise<Task[]> {
-  const { data, error } = await getSupabaseClient()
+  const supabase = createClient()
+  const { data, error } = await supabase
     .from("tasks")
     .select("*")
     .eq("project_id", projectId)
@@ -368,7 +364,8 @@ export async function getProjectTasks(projectId: string): Promise<Task[]> {
 
 export async function createTask(projectId: string, title: string, description?: string): Promise<Task | null> {
   try {
-    const { data, error } = await getSupabaseClient()
+    const supabase = createClient()
+    const { data, error } = await supabase
       .from("tasks")
       .insert([
         {
@@ -399,7 +396,8 @@ export async function createTask(projectId: string, title: string, description?:
 
 export async function updateTask(taskId: string, updates: Partial<Task>): Promise<Task | null> {
   try {
-    const { data, error } = await getSupabaseClient().from("tasks").update(updates).eq("id", taskId).select().single()
+    const supabase = createClient()
+    const { data, error } = await supabase.from("tasks").update(updates).eq("id", taskId).select().single()
 
     if (error || !data) {
       console.error("Update task error:", error.message)
@@ -418,20 +416,15 @@ export async function updateTask(taskId: string, updates: Partial<Task>): Promis
 
 export async function toggleTaskCompletion(taskId: string): Promise<boolean> {
   try {
-    // First get the current task
-    const { data: task, error: getError } = await getSupabaseClient()
-      .from("tasks")
-      .select("completed")
-      .eq("id", taskId)
-      .single()
+    const supabase = createClient()
+    const { data: task, error: getError } = await supabase.from("tasks").select("completed").eq("id", taskId).single()
 
     if (getError || !task) {
       console.error("Get task error:", getError)
       throw new Error("You don't have permission to update this task")
     }
 
-    // Toggle the completion status
-    const { data, error: updateError } = await getSupabaseClient()
+    const { data, error: updateError } = await supabase
       .from("tasks")
       .update({ completed: !task.completed })
       .eq("id", taskId)
@@ -442,7 +435,6 @@ export async function toggleTaskCompletion(taskId: string): Promise<boolean> {
       throw new Error("You don't have permission to update this task")
     }
 
-    // Check if any rows were actually updated
     if (!data || data.length === 0) {
       throw new Error("You don't have permission to update this task")
     }
@@ -459,14 +451,14 @@ export async function toggleTaskCompletion(taskId: string): Promise<boolean> {
 
 export async function deleteTask(taskId: string): Promise<boolean> {
   try {
-    const { data, error } = await getSupabaseClient().from("tasks").delete().eq("id", taskId).select()
+    const supabase = createClient()
+    const { data, error } = await supabase.from("tasks").delete().eq("id", taskId).select()
 
     if (error) {
       console.error("Delete task error:", error.message)
       throw new Error("You don't have permission to delete this task")
     }
 
-    // Check if any rows were actually deleted
     if (!data || data.length === 0) {
       throw new Error("You don't have permission to delete this task")
     }
@@ -483,7 +475,8 @@ export async function deleteTask(taskId: string): Promise<boolean> {
 
 // Member functions
 export async function getProjectMembers(projectId: string): Promise<(ProjectMember & { profile: Profile })[]> {
-  const { data, error } = await getSupabaseClient()
+  const supabase = createClient()
+  const { data, error } = await supabase
     .from("project_members")
     .select(`
       *,
@@ -507,8 +500,8 @@ export async function getProjectMembers(projectId: string): Promise<(ProjectMemb
 
 export async function inviteMember(projectId: string, email: string, role = "viewer"): Promise<boolean> {
   try {
-    // First, find the user by email
-    const { data: profile, error: profileError } = await getSupabaseClient()
+    const supabase = createClient()
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("id")
       .eq("email", email)
@@ -519,8 +512,7 @@ export async function inviteMember(projectId: string, email: string, role = "vie
       throw new Error("User not found with this email address")
     }
 
-    // Check if user is already a member
-    const { data: existingMember } = await getSupabaseClient()
+    const { data: existingMember } = await supabase
       .from("project_members")
       .select("id")
       .eq("project_id", projectId)
@@ -531,8 +523,7 @@ export async function inviteMember(projectId: string, email: string, role = "vie
       throw new Error("User is already a member of this project")
     }
 
-    // Add user as project member
-    const { data, error } = await getSupabaseClient()
+    const { data, error } = await supabase
       .from("project_members")
       .insert([
         {
@@ -546,7 +537,6 @@ export async function inviteMember(projectId: string, email: string, role = "vie
 
     if (error) {
       console.error("Invite member error:", error.message)
-      // Check if it's a permission error
       if (error.code === "42501" || error.message.includes("policy")) {
         throw new Error(
           "You don't have permission to invite members to this project. Only owners and admins can add members.",
@@ -555,7 +545,6 @@ export async function inviteMember(projectId: string, email: string, role = "vie
       throw new Error("Failed to invite member")
     }
 
-    // Check if any rows were actually inserted
     if (!data || data.length === 0) {
       throw new Error(
         "You don't have permission to invite members to this project. Only owners and admins can add members.",
@@ -574,7 +563,8 @@ export async function inviteMember(projectId: string, email: string, role = "vie
 
 export async function removeMember(projectId: string, memberId: string): Promise<boolean> {
   try {
-    const { data, error } = await getSupabaseClient()
+    const supabase = createClient()
+    const { data, error } = await supabase
       .from("project_members")
       .delete()
       .eq("id", memberId)
@@ -583,7 +573,6 @@ export async function removeMember(projectId: string, memberId: string): Promise
 
     if (error) {
       console.error("Remove member error:", error.message)
-      // Check for specific error messages
       if (error.message.includes("Cannot remove the last owner")) {
         throw new Error("Cannot remove the last owner of a project. Transfer ownership first.")
       }
@@ -595,7 +584,6 @@ export async function removeMember(projectId: string, memberId: string): Promise
       throw new Error("Failed to remove member")
     }
 
-    // Check if any rows were actually deleted
     if (!data || data.length === 0) {
       throw new Error(
         "You don't have permission to remove members from this project. Only owners and admins can remove members.",
@@ -614,7 +602,8 @@ export async function removeMember(projectId: string, memberId: string): Promise
 
 export async function updateMemberRole(projectId: string, memberId: string, role: string): Promise<boolean> {
   try {
-    const { data, error } = await getSupabaseClient()
+    const supabase = createClient()
+    const { data, error } = await supabase
       .from("project_members")
       .update({ role })
       .eq("id", memberId)
@@ -631,7 +620,6 @@ export async function updateMemberRole(projectId: string, memberId: string, role
       throw new Error("Failed to update member role")
     }
 
-    // Check if any rows were actually updated
     if (!data || data.length === 0) {
       throw new Error(
         "You don't have permission to update member roles in this project. Only owners and admins can modify roles.",
@@ -651,13 +639,14 @@ export async function updateMemberRole(projectId: string, memberId: string, role
 // Helper function to get current user's role in a project
 export async function getCurrentUserRole(projectId: string): Promise<string | null> {
   try {
+    const supabase = createClient()
     const {
       data: { user },
-    } = await getSupabaseClient().auth.getUser()
+    } = await supabase.auth.getUser()
 
     if (!user) return null
 
-    const { data, error } = await getSupabaseClient()
+    const { data, error } = await supabase
       .from("project_members")
       .select("role")
       .eq("project_id", projectId)
